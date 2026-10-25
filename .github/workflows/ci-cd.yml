@@ -1,0 +1,52 @@
+name: URL Shortener CI/CD Pipeline
+
+# Когда запускать конвейер? При каждом git push в ветку main!
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  # ЭТАП 1: Автоматическая проверка работоспособности приложения
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Скачиваем код из репозитория
+        uses: actions/checkout@v4
+
+      - name: 2. Создаём тестовый файл .env для проверки
+        run: |
+          echo "POSTGRES_DB=test_db" >> .env
+          echo "POSTGRES_USER=test_user" >> .env
+          echo "POSTGRES_PASSWORD=test_pass" >> .env
+          echo "DATABASE_URL=postgresql://test_user:test_pass@db:5432/test_db" >> .env
+
+      - name: 3. Запускаем Docker Compose и проверяем /health
+        run: |
+          docker compose up -d --build
+          sleep 10
+          curl --fail http://localhost/health
+
+  # ЭТАП 2: Сборка Docker image и публикация в Docker Registry (GHCR)
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: 1. Скачиваем код
+        uses: actions/checkout@v4
+
+      - name: 2. Авторизуемся в GitHub Container Registry (Docker Registry)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 3. Собираем Docker Image и пушим в Registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/werhogowich/url-shortener:latest
