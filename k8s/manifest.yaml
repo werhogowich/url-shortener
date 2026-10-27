@@ -1,0 +1,86 @@
+# 1. SECRET: Секретный сейф с настройками и паролями (замена .env)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+stringData:
+  POSTGRES_DB: "shortener_db"
+  POSTGRES_USER: "dima_admin"
+  POSTGRES_PASSWORD: "super_secret_pass_123"
+  DATABASE_URL: "postgresql://dima_admin:super_secret_pass_123@db:5432/shortener_db"
+---
+# 2. DEPLOYMENT БАЗЫ ДАННЫХ: Запускает контейнер PostgreSQL
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          envFrom:
+            - secretRef:
+                name: db-secret
+          ports:
+            - containerPort: 5432
+---
+# 3. SERVICE БАЗЫ ДАННЫХ: Даёт базе постоянное имя "db" внутри кластера (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# 4. DEPLOYMENT ПРИЛОЖЕНИЯ: Запускает сразу 3 КОПИИ (Пода) нашего сайта!
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: shortener-web
+  template:
+    metadata:
+      labels:
+        app: shortener-web
+    spec:
+      containers:
+        - name: web
+          image: docker.io/library/url-shortener:v2
+          imagePullPolicy: Never
+          envFrom:
+            - secretRef:
+                name: db-secret
+          ports:
+            - containerPort: 5000
+---
+# 5. SERVICE ПРИЛОЖЕНИЯ: Открывает порт 30080 наружу и балансирует между 3 Подами!
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+spec:
+  type: NodePort
+  selector:
+    app: shortener-web
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30080
